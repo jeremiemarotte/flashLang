@@ -25,8 +25,15 @@ def _dedup_key(card_in: CardCreate) -> str:
 
 def _create_card(db: Session, card_in: CardCreate) -> Card:
     key = _dedup_key(card_in)
+    # Dedup is scoped by (language, domain): a language-learning card and a culture note that
+    # happen to share similar text (e.g. "sobremesa" as vocab vs. as a cultural fact) shouldn't
+    # false-positive against each other.
     existing = db.scalar(
-        select(Card).where(Card.front_normalized == key, Card.language == card_in.language)
+        select(Card).where(
+            Card.front_normalized == key,
+            Card.language == card_in.language,
+            Card.domain == card_in.domain,
+        )
     )
     if existing is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, f"card already exists: {existing.id}")
@@ -34,7 +41,11 @@ def _create_card(db: Session, card_in: CardCreate) -> Card:
     similarity = func.similarity(Card.front_normalized, key)
     near_duplicate = db.scalar(
         select(Card)
-        .where(Card.language == card_in.language, similarity >= FUZZY_DEDUP_THRESHOLD)
+        .where(
+            Card.language == card_in.language,
+            Card.domain == card_in.domain,
+            similarity >= FUZZY_DEDUP_THRESHOLD,
+        )
         .order_by(similarity.desc())
     )
     if near_duplicate is not None:
@@ -51,6 +62,7 @@ def _create_card(db: Session, card_in: CardCreate) -> Card:
         text=card_in.text,
         front_normalized=key,
         language=card_in.language,
+        domain=card_in.domain,
         context=card_in.context,
         source_session=card_in.source_session,
         tags=card_in.tags,
@@ -89,6 +101,7 @@ def create_cards_batch(batch: CardBatchCreate, db: Session = Depends(get_db)) ->
 @router.get("/recent", response_model=list[CardOut], dependencies=[Depends(require_hermes)])
 def list_recent_cards(
     lang: str | None = Query(default=None, alias="lang"),
+    domain: str | None = Query(default=None),
     limit: int = Query(default=20, le=100),
     db: Session = Depends(get_db),
 ) -> list[Card]:
@@ -97,18 +110,23 @@ def list_recent_cards(
     stmt = select(Card).order_by(Card.created_at.desc()).limit(limit)
     if lang:
         stmt = stmt.where(Card.language == lang)
+    if domain:
+        stmt = stmt.where(Card.domain == domain)
     return list(db.scalars(stmt))
 
 
 @router.get("/due", response_model=list[CardOut], dependencies=[Depends(require_any_client)])
 def list_due_cards(
     lang: str | None = Query(default=None, alias="lang"),
+    domain: str | None = Query(default=None),
     limit: int = Query(default=20, le=100),
     db: Session = Depends(get_db),
 ) -> list[Card]:
     stmt = select(Card).where(Card.due <= datetime.now(timezone.utc)).order_by(Card.due).limit(limit)
     if lang:
         stmt = stmt.where(Card.language == lang)
+    if domain:
+        stmt = stmt.where(Card.domain == domain)
     return list(db.scalars(stmt))
 
 

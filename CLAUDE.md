@@ -9,6 +9,11 @@ target C1). The MVP described below (v0.1, spec dated 2026-07-11) is scaffolded 
 smoke-tested end to end: migrations, card CRUD, dedup 409, per-token auth boundary, FSRS-driven
 reviews, daily stats, and the PWA being served all work against a live `docker compose` stack.
 
+As of 2026-07-11, scope was deliberately extended beyond pure language mechanics to also cover
+**cultural knowledge** tied to the languages being learned (see the `domain` field below) — this
+was an explicit decision, not scope creep; don't read "English + Spanish, target C1" above as
+meaning language-only.
+
 ## Commands
 
 ```sh
@@ -60,15 +65,21 @@ retest on top of what the app already tracks. See the Hermes skill section below
 ## Architecture (three components + infra)
 
 **1. Backend API** — `api/app/`, FastAPI + SQLAlchemy + Alembic + Postgres.
-- `models.py`: `Card` (type, front/back or text, language, context, source_session, tags, FSRS
-  fields: `due`, `fsrs_state`, `fsrs_step`, `stability`, `difficulty`, `last_review`, `reps`,
-  `lapses`) and `Review` (card_id, rating, reviewed_at, interval_days). `front_normalized` +
-  a unique DB index on `(language, front_normalized)` enforce exact-match dedup at the schema
-  level, not just in application code. On top of that, `routers/cards.py` also rejects
-  **near-duplicates** using Postgres `pg_trgm` similarity (`FUZZY_DEDUP_THRESHOLD = 0.55`,
-  migration `0002_pg_trgm_dedup.py` enables the extension + a GIN trigram index) — catches the
-  same phrase reworded, which exact normalization alone doesn't. Tune the threshold based on real
-  409 volume, don't just raise/lower it on a hunch.
+- `models.py`: `Card` (type, front/back or text, language, `domain`, context, source_session,
+  tags, FSRS fields: `due`, `fsrs_state`, `fsrs_step`, `stability`, `difficulty`, `last_review`,
+  `reps`, `lapses`) and `Review` (card_id, rating, reviewed_at, interval_days). `domain`
+  (`"language"` | `"culture"`, migration `0003_add_card_domain.py`) is orthogonal to both `type`
+  (basic/cloze — the card's shape) and `language` (en/es — still set on culture cards, since
+  cultural knowledge is tied to the language being learned, not a free-floating trivia bucket).
+  Don't conflate `domain` with `type`: a cultural fact can be `basic` or `cloze` just like a
+  language card. `front_normalized` + a unique DB index on `(language, domain, front_normalized)`
+  enforce exact-match dedup at the schema level, not just in application code — scoped by domain
+  too, so a language card and a culture card can share similar text without falsely conflicting.
+  On top of that, `routers/cards.py` also rejects **near-duplicates** (same `language`+`domain`)
+  using Postgres `pg_trgm` similarity (`FUZZY_DEDUP_THRESHOLD = 0.55`, migration
+  `0002_pg_trgm_dedup.py` enables the extension + a GIN trigram index) — catches the same phrase
+  reworded, which exact normalization alone doesn't. Tune the threshold based on real 409 volume,
+  don't just raise/lower it on a hunch.
 - `fsrs_engine.py`: wraps the `fsrs` package (v6, `Scheduler`/`Card`/`Rating`/`State`). Our own
   `Card` row is the source of truth; `apply_review()` reconstructs an `fsrs.Card` from our stored
   fields, calls `scheduler.review_card()`, then writes the updated fields back — the library's
@@ -81,9 +92,11 @@ retest on top of what the app already tracks. See the Hermes skill section below
   `require_any_client` guards read/review endpoints. Don't loosen `require_hermes` to
   `require_any_client` without revisiting the "PWA never creates cards" non-objective.
 - `routers/cards.py`, `routers/reviews.py`, `routers/stats.py`: `POST /cards`, `POST /cards/batch`,
-  `GET /cards/due?lang=&limit=`, `GET /cards/recent?lang=&limit=` (backs the Hermes skill's
-  `list_recent_cards`, not in the original PRD endpoint list — added because the skill needed it),
-  `GET /cards/{id}`, `DELETE /cards/{id}`, `POST /reviews`, `GET /stats/daily`.
+  `GET /cards/due?lang=&domain=&limit=`, `GET /cards/recent?lang=&domain=&limit=` (backs the
+  Hermes skill's `list_recent_cards`, not in the original PRD endpoint list — added because the
+  skill needed it), `GET /cards/{id}`, `DELETE /cards/{id}`, `POST /reviews`, `GET /stats/daily`.
+  `domain` on the list endpoints is optional — omit it to get both language and culture cards
+  together.
   `POST /cards/batch` commits each card in its own transaction (not one commit for the whole
   batch) specifically so a dedup conflict on one card doesn't roll back the others — the earlier
   version wrapped the whole batch in one commit and a mid-loop `HTTPException` from `_create_card`
@@ -112,16 +125,27 @@ retest on top of what the app already tracks. See the Hermes skill section below
   the last three needed a backend change to expose — `require_any_client` already accepted
   `HERMES_TOKEN` on all of them.
 - Trigger rules live in the skill prompt, not backend logic: create a card only when an error is
-  corrected ≥2 times, vocab is explicitly requested, or something's flagged "à retenir". Cap 5
-  cards/session as a quality gate, **except pure remediation sessions** (🔴 error at 6+
-  occurrences per the user's own remediation rules), which get a cap of 10 — remediation items
-  are already-confirmed priority gaps, not exploratory capture. Prefer `cloze` for
-  grammar-in-context, `basic` for raw lexicon. Always populate `context`. `source_session` should
-  embed an ISO date (`{language}-{date}-{label}`) so cards can be cross-referenced against the
-  user's `history/en`/`history/es` logs without a manual lookup. A 409 from the API means "already
-  tracked" (exact or fuzzy match), not an error — the skill should treat it as success, not retry.
-  Deletion is the opposite: user-facing and always announced, never silent — see `SKILL.md` for
-  when it's appropriate to delete vs. just skip.
+  corrected ≥2 times, vocab is explicitly requested, something's flagged "à retenir", or (since
+  2026-07-11) a relevant **cultural fact** comes up worth retaining under the same bar. Cap 5
+  cards/session as a quality gate, **shared across language and culture cards combined, not 5 of
+  each** — except pure remediation sessions (🔴 error at 6+ occurrences per the user's own
+  remediation rules), which get a cap of 10. Remediation items are already-confirmed priority
+  gaps, not exploratory capture.
+- Card-shape rules are more nuanced than a simple basic-vs-cloze split (added 2026-07-11 after the
+  user reported cloze cards they couldn't figure out how to answer): `cloze` only when a blank
+  tests **one single point** with **exactly one correct answer given the sentence alone**;
+  **chunks/formulaic expressions must be `basic`, never `cloze`** — a description/scenario as
+  `front`, the exact chunk as `back`, so the user does active recall of the whole unit rather than
+  fill-in-the-blank recognition (decomposing a chunk into a cloze is exactly what produced the
+  confusing cards); raw vocabulary stays plain `basic` front/back. See `SKILL.md`'s "Choosing
+  basic vs cloze" section for the full reasoning — don't re-simplify this back to "cloze for
+  grammar, basic for vocab" without re-reading why chunks were split out.
+- Always populate `context`. `source_session` should embed an ISO date
+  (`{language}-{date}-{label}`) so cards can be cross-referenced against the user's
+  `history/en`/`history/es` logs without a manual lookup. A 409 from the API means "already
+  tracked" (exact or fuzzy match, scoped per `language`+`domain`), not an error — the skill should
+  treat it as success, not retry. Deletion is the opposite: user-facing and always announced,
+  never silent — see `SKILL.md` for when it's appropriate to delete vs. just skip.
 
 **3. PWA** — `api/app/static/` (`index.html`, `style.css`, `app.js`, `sw.js`, `manifest.json`).
 - Not a separate service — static files served by the `api` container itself via `StaticFiles`,
@@ -134,8 +158,10 @@ retest on top of what the app already tracks. See the Hermes skill section below
   a new exposure. Don't remove the gate fallback; it's what keeps the PWA usable if `config.js`
   ever fails to load.
 - Vanilla JS, no bundler/build step. Single-page state machine in `app.js`: gate (fallback token
-  entry) → home (due counts by language from `GET /cards/due`) → review (reveal → rate, cloze
-  parsed from `{{c1::...}}` syntax client-side) → summary.
+  entry) → home (due counts from `GET /cards/due`, bucketed by `countsByBucket()` into EN / ES /
+  Culture — culture cards are counted in one combined bucket regardless of `language`, the actual
+  language is still shown in the per-card progress header during review) → review (reveal → rate,
+  cloze parsed from `{{c1::...}}` syntax client-side) → summary.
 - Offline: last-fetched due cards cached in `localStorage`; reviews that fail to POST are queued
   in `localStorage` and flushed on next load. Last-write-wins, no conflict resolution — this is
   intentional (mono-device, mono-user), don't build a merge strategy.

@@ -11,6 +11,7 @@ class CardCreate(BaseModel):
     back: str | None = None
     text: str | None = None
     language: Literal["en", "es"]
+    domain: Literal["language", "culture"] = "language"
     context: str | None = None
     source_session: str | None = None
     tags: list[str] = []
@@ -37,6 +38,7 @@ class CardOut(BaseModel):
     back: str | None
     text: str | None
     language: str
+    domain: str
     context: str | None
     source_session: str | None
     tags: list[str]

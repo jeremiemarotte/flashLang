@@ -59,9 +59,12 @@ async function loadDueCards() {
   }
 }
 
-function countsByLanguage(cards) {
+function countsByBucket(cards) {
+  // Culture cards are counted in one combined bucket regardless of language — the actual
+  // language is still shown per-card during review, this is just the home-screen tally.
   return cards.reduce((acc, c) => {
-    acc[c.language] = (acc[c.language] || 0) + 1;
+    const bucket = c.domain === "culture" ? "culture" : c.language;
+    acc[bucket] = (acc[bucket] || 0) + 1;
     return acc;
   }, {});
 }
@@ -101,7 +104,7 @@ async function renderHome() {
   await flushQueue();
   await loadDueCards();
 
-  const counts = countsByLanguage(state.dueCards);
+  const counts = countsByBucket(state.dueCards);
   const total = state.dueCards.length;
 
   app.innerHTML = `
@@ -111,6 +114,7 @@ async function renderHome() {
       <div class="due-counts">
         <div class="due-count"><div class="n">${counts.en || 0}</div><div class="muted">EN</div></div>
         <div class="due-count"><div class="n">${counts.es || 0}</div><div class="muted">ES</div></div>
+        <div class="due-count"><div class="n">${counts.culture || 0}</div><div class="muted">Culture</div></div>
       </div>
       <button class="btn-primary" id="start-review" ${total === 0 ? "disabled" : ""}>
         ${total === 0 ? "Rien à réviser" : `Réviser (${total})`}
@@ -146,7 +150,7 @@ function renderReview() {
 
   app.innerHTML = `
     <div class="screen">
-      <div class="progress">${state.session.index + 1} / ${state.dueCards.length} · ${card.language.toUpperCase()}</div>
+      <div class="progress">${state.session.index + 1} / ${state.dueCards.length} · ${card.language.toUpperCase()}${card.domain === "culture" ? " · Culture" : ""}</div>
       <div class="card" id="card-face">
         <div>${revealed ? back : front}</div>
         ${revealed && card.context ? `<div class="context">${escapeHtml(card.context)}</div>` : ""}
