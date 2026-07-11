@@ -87,10 +87,16 @@ no Anki import — read [4.](non-objectives) below before adding scope.
 **3. PWA** — `api/app/static/` (`index.html`, `style.css`, `app.js`, `sw.js`, `manifest.json`).
 - Not a separate service — static files served by the `api` container itself via `StaticFiles`,
   same origin as the REST API.
-- Vanilla JS, no bundler/build step. Single-page state machine in `app.js`: gate (token entry,
-  since there's no login UI — the PWA token is entered once and stored in `localStorage`) → home
-  (due counts by language from `GET /cards/due`) → review (reveal → rate, cloze parsed from
-  `{{c1::...}}` syntax client-side) → summary.
+- No login UI. `entrypoint.sh` bakes `PWA_TOKEN` into `app/static/config.js`
+  (`window.PWA_TOKEN = "..."`) on every container start, before uvicorn starts; `index.html` loads
+  it before `app.js`. `app.js`'s `boot()` uses `window.PWA_TOKEN` if present, only falling back to
+  the manual-entry gate screen (token typed once, stored in `localStorage`) if it's missing —
+  Tailscale is already the trust boundary for this mono-user app, so skipping a login screen isn't
+  a new exposure. Don't remove the gate fallback; it's what keeps the PWA usable if `config.js`
+  ever fails to load.
+- Vanilla JS, no bundler/build step. Single-page state machine in `app.js`: gate (fallback token
+  entry) → home (due counts by language from `GET /cards/due`) → review (reveal → rate, cloze
+  parsed from `{{c1::...}}` syntax client-side) → summary.
 - Offline: last-fetched due cards cached in `localStorage`; reviews that fail to POST are queued
   in `localStorage` and flushed on next load. Last-write-wins, no conflict resolution — this is
   intentional (mono-device, mono-user), don't build a merge strategy.

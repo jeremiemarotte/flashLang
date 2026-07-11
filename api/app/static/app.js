@@ -212,6 +212,9 @@ async function boot() {
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   }
+  // Server-injected token (see /config.js, baked in from PWA_TOKEN at container start) skips
+  // the manual entry screen — Tailscale is already the trust boundary for this mono-user app.
+  if (window.PWA_TOKEN) state.token = window.PWA_TOKEN;
   if (!state.token) return renderGate();
   renderHome();
 }

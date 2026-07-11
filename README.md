@@ -68,8 +68,9 @@ Doit renvoyer `201` avec la carte créée. Un deuxième appel avec le même `fro
 1. Ouvrir **`http://localhost:8000`** (ou l'adresse Tailscale de l'hôte en prod) dans un
    **vrai navigateur** — pas `curl` ni "afficher la source". La page est une SPA : le HTML brut
    ne contient qu'un `<main id="app">` vide, tout le contenu est injecté par `app.js` au chargement.
-2. Au premier lancement, une invite demande le token — entrer la valeur de `PWA_TOKEN`. Il est
-   stocké dans le `localStorage` du navigateur, pas besoin de le ressaisir ensuite.
+2. Aucune saisie de token nécessaire — `PWA_TOKEN` est injecté automatiquement dans `/config.js`
+   par le conteneur au démarrage (Tailscale est déjà la barrière de confiance, pas besoin d'un
+   écran de connexion). L'écran d'accueil s'affiche directement.
 3. Écran d'accueil : compteur de cartes dues par langue, bouton "Réviser".
 4. Écran de révision : tap pour révéler la réponse, puis noter avec Again / Hard / Good / Easy —
    FSRS recalcule automatiquement la prochaine échéance.
