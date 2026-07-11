@@ -17,7 +17,8 @@ class Card(Base):
     back: Mapped[str | None] = mapped_column(Text, nullable=True)
     text: Mapped[str | None] = mapped_column(Text, nullable=True)  # cloze, e.g. "I {{c1::used to}} live there"
     front_normalized: Mapped[str] = mapped_column(Text)  # lowercased/accent-stripped, used for dedup
-    language: Mapped[str] = mapped_column(String(2))  # "en" | "es"
+    language: Mapped[str] = mapped_column(String(2))  # "en" | "es" — still set even for domain="culture"
+    domain: Mapped[str] = mapped_column(String(20), default="language")  # "language" | "culture"
     context: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_session: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
