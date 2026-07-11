@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import require_any_client, require_hermes
@@ -12,6 +12,11 @@ from app.models import Card
 from app.schemas import CardBatchCreate, CardCreate, CardOut
 
 router = APIRouter(prefix="/cards", tags=["cards"])
+
+# pg_trgm similarity is 0-1 (identical strings score 1.0). Chosen conservatively so short
+# phrases that just share a few words don't false-positive — tune based on real 409 volume
+# once the skill has been used for a while.
+FUZZY_DEDUP_THRESHOLD = 0.55
 
 
 def _dedup_key(card_in: CardCreate) -> str:
@@ -25,6 +30,19 @@ def _create_card(db: Session, card_in: CardCreate) -> Card:
     )
     if existing is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, f"card already exists: {existing.id}")
+
+    similarity = func.similarity(Card.front_normalized, key)
+    near_duplicate = db.scalar(
+        select(Card)
+        .where(Card.language == card_in.language, similarity >= FUZZY_DEDUP_THRESHOLD)
+        .order_by(similarity.desc())
+    )
+    if near_duplicate is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"card too similar to existing one: {near_duplicate.id} "
+            f"({near_duplicate.front or near_duplicate.text})",
+        )
 
     card = Card(
         type=card_in.type,

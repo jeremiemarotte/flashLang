@@ -41,6 +41,14 @@ language-coaching sessions. A PWA on iOS lets the user review those cards on a s
 schedule (FSRS) during commutes. No manual card creation in the PWA, no audio, no multi-user,
 no Anki import — read [4.](non-objectives) below before adding scope.
 
+Hermes runs as **Claude Code sessions invoked via a Telegram channel** — "the skill" is a Claude
+Code skill in the same sense as any other, and `hermes-skill/SKILL.md`'s frontmatter format
+matches that directly. The user also keeps a separate **manual** spaced-repetition system
+(`spaced-repetition.md`, J+2/J+7/J+21 style) outside this app — flashLang's FSRS scheduling and
+that manual system are two independent schedules over potentially the same material, so the skill
+is expected to check flashLang's real state (`get_due_cards`, `get_card`) before layering a manual
+retest on top of what the app already tracks. See the Hermes skill section below.
+
 ### Non-objectives (MVP) — do not add without an explicit scope decision
 - Manual card creation/editing in the PWA (read + review only)
 - Audio/pronunciation cards
@@ -55,8 +63,12 @@ no Anki import — read [4.](non-objectives) below before adding scope.
 - `models.py`: `Card` (type, front/back or text, language, context, source_session, tags, FSRS
   fields: `due`, `fsrs_state`, `fsrs_step`, `stability`, `difficulty`, `last_review`, `reps`,
   `lapses`) and `Review` (card_id, rating, reviewed_at, interval_days). `front_normalized` +
-  a unique DB index on `(language, front_normalized)` enforce dedup at the schema level, not just
-  in application code.
+  a unique DB index on `(language, front_normalized)` enforce exact-match dedup at the schema
+  level, not just in application code. On top of that, `routers/cards.py` also rejects
+  **near-duplicates** using Postgres `pg_trgm` similarity (`FUZZY_DEDUP_THRESHOLD = 0.55`,
+  migration `0002_pg_trgm_dedup.py` enables the extension + a GIN trigram index) — catches the
+  same phrase reworded, which exact normalization alone doesn't. Tune the threshold based on real
+  409 volume, don't just raise/lower it on a hunch.
 - `fsrs_engine.py`: wraps the `fsrs` package (v6, `Scheduler`/`Card`/`Rating`/`State`). Our own
   `Card` row is the source of truth; `apply_review()` reconstructs an `fsrs.Card` from our stored
   fields, calls `scheduler.review_card()`, then writes the updated fields back — the library's
@@ -77,12 +89,19 @@ no Anki import — read [4.](non-objectives) below before adding scope.
 
 **2. Hermes skill** — `hermes-skill/SKILL.md`, kept in this repo (versioned with the API it calls).
 - Tools: `create_flashcard` → `POST /cards`, `create_flashcards_batch` → `POST /cards/batch`,
-  `list_recent_cards` → `GET /cards/recent`.
+  `list_recent_cards` → `GET /cards/recent`, `get_due_cards` → `GET /cards/due`, `get_card` →
+  `GET /cards/{id}` (the last two exist purely to let the skill check real SRS state before
+  double-scheduling a manual retest — no backend change was needed for them, both endpoints
+  already accepted `HERMES_TOKEN` via `require_any_client`).
 - Trigger rules live in the skill prompt, not backend logic: create a card only when an error is
   corrected ≥2 times, vocab is explicitly requested, or something's flagged "à retenir". Cap 5
-  cards/session — a quality gate. Prefer `cloze` for grammar-in-context, `basic` for raw lexicon.
-  Always populate `context`. A 409 from the API means "already tracked," not an error — the skill
-  should treat it as success, not retry.
+  cards/session as a quality gate, **except pure remediation sessions** (🔴 error at 6+
+  occurrences per the user's own remediation rules), which get a cap of 10 — remediation items
+  are already-confirmed priority gaps, not exploratory capture. Prefer `cloze` for
+  grammar-in-context, `basic` for raw lexicon. Always populate `context`. `source_session` should
+  embed an ISO date (`{language}-{date}-{label}`) so cards can be cross-referenced against the
+  user's `history/en`/`history/es` logs without a manual lookup. A 409 from the API means "already
+  tracked" (exact or fuzzy match), not an error — the skill should treat it as success, not retry.
 
 **3. PWA** — `api/app/static/` (`index.html`, `style.css`, `app.js`, `sw.js`, `manifest.json`).
 - Not a separate service — static files served by the `api` container itself via `StaticFiles`,
