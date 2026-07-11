@@ -1,5 +1,5 @@
 const CACHE = "flashlang-shell-v1";
-const SHELL_FILES = ["/", "/index.html", "/style.css", "/app.js", "/manifest.json", "/icon.svg"];
+const SHELL_FILES = ["/", "/index.html", "/style.css", "/app.js", "/config.js", "/manifest.json", "/icon.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL_FILES)));
