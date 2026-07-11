@@ -125,9 +125,38 @@ Local dev uses the base `docker-compose.yml` alone (Docker-managed volumes, no Z
 Hermes reaches the `api` container over LAN IP if co-located on the same network, otherwise over
 Tailscale, using its own `HERMES_TOKEN`.
 
+### Image-based deployment (no source clone required)
+
+`.github/workflows/docker-publish.yml` builds `api/Dockerfile` and pushes it to
+`ghcr.io/jeremiemarotte/flashlang-api` (tags `:latest` and `:<sha>`) on every push to `main` that
+touches `api/`. [docker-compose.prod.yml](docker-compose.prod.yml) is a **standalone** compose
+file (not an override of `docker-compose.yml`) that references this image via `image:` instead of
+`build:` — it's meant to be the only file a deploy target needs, so Dockge/TrueNAS can pull and
+run without cloning the repo or having the Dockerfile/source present.
+
+The `backup` service in `docker-compose.prod.yml` inlines the `pg_dump` loop as a `command:`
+instead of mounting `deploy/backup.sh` (which `docker-compose.yml`'s `backup` service does) —
+that file mount would require the repo to be present, defeating the point of this file being
+standalone. **Gotcha already hit once**: any `$var`/`${var}` meant for the shell inside that
+inline command must be escaped as `$$var`/`$${var}`, or `docker compose`'s own variable
+interpolation silently resolves it (to blank, if unset) before the shell ever sees it — this
+broke the dump filenames until caught by inspecting the container's actual resolved `Cmd`, not
+just `docker compose config` output (which mis-displayed the escaping and looked fine).
+
+`deploy/docker-compose.prod.truenas.yml` is the ZFS-bind-mount override for this image-based
+path (parallel to `deploy/docker-compose.truenas.yml`, but without the `backup.sh` mount since
+`docker-compose.prod.yml`'s backup command is already self-contained):
+```sh
+docker compose -f docker-compose.prod.yml -f deploy/docker-compose.prod.truenas.yml up -d
+```
+
+First-time setup requires making the GHCR package public (or configuring `docker login ghcr.io`
+on the deploy host) — it's private by default after the first push.
+
 Repo layout: `api/` (FastAPI app + Alembic + PWA static assets), `hermes-skill/` (the skill
-markdown), `deploy/` (TrueNAS compose override + backup script), `docker-compose.yml` +
-`.env.example` at root.
+markdown), `deploy/` (compose overrides + backup script for the source-build path),
+`.github/workflows/` (CI image publish), `docker-compose.yml` (source build, local dev),
+`docker-compose.prod.yml` (image-based, standalone), `.env.example` at root.
 
 ## Key constraints that should shape implementation choices
 
