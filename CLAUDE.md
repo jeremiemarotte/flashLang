@@ -89,16 +89,28 @@ retest on top of what the app already tracks. See the Hermes skill section below
   version wrapped the whole batch in one commit and a mid-loop `HTTPException` from `_create_card`
   aborted the entire request before later items were even attempted. Caught by actually running a
   batch with a duplicate in the middle and checking what got persisted, not by reading the code.
-  `GET /cards/{id}`, `DELETE /cards/{id}`, `POST /reviews`, `GET /stats/daily`.
 - `main.py`: mounts the PWA's static files at `/` via `StaticFiles` — API routers are registered
-  first so their paths take precedence over the catch-all static mount.
+  first so their paths take precedence over the catch-all static mount. Also serves
+  `GET /skill.md` (unauthenticated, plain text) reading `hermes-skill/SKILL.md` straight from
+  disk — see the Hermes skill section below for why.
 
-**2. Hermes skill** — `hermes-skill/SKILL.md`, kept in this repo (versioned with the API it calls).
+**2. Hermes skill** — `hermes-skill/SKILL.md`. Source of truth lives in this repo, but it's also
+  **baked into the `api` Docker image and served live at `GET /skill.md`** (unauthenticated).
+  Hermes/Claude Code runs as its own separate Docker stack (via Dockge, not this repo) — without
+  this endpoint, the skill content in that stack and the API in this one are two independently
+  redeployed copies of the same contract with no automatic way to catch drift between them. The
+  Claude Code side is expected to fetch `/skill.md` rather than keep a static local copy; how it
+  does that (startup fetch, periodic refresh) is that stack's concern, not this repo's. Whenever
+  `api/` or `hermes-skill/` changes, `.github/workflows/docker-publish.yml` rebuilds and
+  republishes the image — the `api` Dockerfile's build context is the **repo root** (not `api/`)
+  specifically so it can `COPY hermes-skill/SKILL.md` into the image; don't revert that context
+  change without finding another way to get the skill file into the build.
 - Tools: `create_flashcard` → `POST /cards`, `create_flashcards_batch` → `POST /cards/batch`,
   `list_recent_cards` → `GET /cards/recent`, `get_due_cards` → `GET /cards/due`, `get_card` →
-  `GET /cards/{id}` (the last two exist purely to let the skill check real SRS state before
-  double-scheduling a manual retest — no backend change was needed for them, both endpoints
-  already accepted `HERMES_TOKEN` via `require_any_client`).
+  `GET /cards/{id}`, `delete_flashcard` → `DELETE /cards/{id}`. `get_due_cards`/`get_card` exist
+  purely to let the skill check real SRS state before double-scheduling a manual retest; none of
+  the last three needed a backend change to expose — `require_any_client` already accepted
+  `HERMES_TOKEN` on all of them.
 - Trigger rules live in the skill prompt, not backend logic: create a card only when an error is
   corrected ≥2 times, vocab is explicitly requested, or something's flagged "à retenir". Cap 5
   cards/session as a quality gate, **except pure remediation sessions** (🔴 error at 6+
@@ -108,6 +120,8 @@ retest on top of what the app already tracks. See the Hermes skill section below
   embed an ISO date (`{language}-{date}-{label}`) so cards can be cross-referenced against the
   user's `history/en`/`history/es` logs without a manual lookup. A 409 from the API means "already
   tracked" (exact or fuzzy match), not an error — the skill should treat it as success, not retry.
+  Deletion is the opposite: user-facing and always announced, never silent — see `SKILL.md` for
+  when it's appropriate to delete vs. just skip.
 
 **3. PWA** — `api/app/static/` (`index.html`, `style.css`, `app.js`, `sw.js`, `manifest.json`).
 - Not a separate service — static files served by the `api` container itself via `StaticFiles`,
@@ -135,10 +149,14 @@ retest on top of what the app already tracks. See the Hermes skill section below
 SCALE as a **Custom App** (compose import), not through the app catalog — gives full control over
 volume-to-ZFS-dataset mounts.
 
-- **`api`**: builds from `api/Dockerfile`. `entrypoint.sh` runs `alembic upgrade head` before
-  starting uvicorn — migrations are applied on every container start, not a separate manual step.
-  Port published on the host (`${API_PORT:-8000}`) so it's reachable over the host's existing
-  Tailscale install — no `tailscale` sidecar container, no tunnel/proxy container in this stack.
+- **`api`**: builds from `api/Dockerfile` with the build **context set to the repo root**
+  (`build: {context: ., dockerfile: api/Dockerfile}`), not `./api` — needed so the Dockerfile can
+  `COPY hermes-skill/SKILL.md` into the image (see Hermes skill section above). `.dockerignore`
+  lives at the repo root for the same reason, not inside `api/`. `entrypoint.sh` runs
+  `alembic upgrade head` before starting uvicorn — migrations are applied on every container
+  start, not a separate manual step. Port published on the host (`${API_PORT:-8000}`) so it's
+  reachable over the host's existing Tailscale install — no `tailscale` sidecar container, no
+  tunnel/proxy container in this stack.
 - **`db`**: `postgres:16-alpine`, named volume `db_data`.
 - **`backup`**: `postgres:16-alpine` reused as a client image, running `deploy/backup.sh` (a
   `pg_dump -Fc` loop, once/day, 30-day retention) to the `backup_data` volume. Exists because
