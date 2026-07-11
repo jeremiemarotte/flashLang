@@ -1,0 +1,15 @@
+# Override for TrueNAS SCALE deployment (Custom App / compose import).
+# Usage: docker compose -f docker-compose.yml -f deploy/docker-compose.truenas.yml up -d
+#
+# Points the named volumes at bind mounts on ZFS datasets instead of Docker-managed volumes,
+# so the data lives on paths TrueNAS itself snapshots.
+
+services:
+  db:
+    volumes:
+      - /mnt/<pool>/flashlang/db:/var/lib/postgresql/data
+
+  backup:
+    volumes:
+      - ./deploy/backup.sh:/backup.sh:ro
+      - /mnt/<pool>/flashlang/backups:/backups
