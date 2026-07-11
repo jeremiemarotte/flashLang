@@ -5,9 +5,14 @@ description: Create spaced-repetition flashcards from language-coaching sessions
 
 # Flashcards skill
 
+> This file is baked into the flashLang API image and served live at `GET {API_BASE_URL}/skill.md`.
+> Fetch it from there rather than keeping a locally cached copy — the API and this skill are
+> deployed as two separate Docker stacks (Dockge), and a stale local copy is exactly the kind of
+> silent drift this endpoint exists to prevent.
+
 Use this skill during language-coaching sessions to capture vocabulary and grammar structures
-worth reviewing later. Cards are reviewed by the user on a separate PWA — this skill only
-**creates** cards, it never reviews or edits them.
+worth reviewing later, and to remove cards that shouldn't have been created. Cards are **reviewed**
+by the user on a separate PWA — this skill never touches review/rating, only creation and deletion.
 
 ## When to create a card
 
@@ -107,6 +112,20 @@ your own tracking (see "Avoid double-tracking" above).
 Same auth. Returns a single card's full state, including `reps`, `lapses`, `stability`,
 `difficulty`, `due`, `last_review`. Use to check whether a specific item is already solid in the
 app before deciding it needs remediation.
+
+### `delete_flashcard`
+`DELETE {API_BASE_URL}/cards/{id}`
+Same auth. Deletes a card immediately — there's no undo, no soft-delete. Returns `204` on success,
+`404` if the id doesn't exist (treat that as already-deleted, not an error).
+
+Use this when:
+- The user **explicitly asks** to remove a specific card.
+- You just created a card in this same session and realize it's clearly wrong (bad language tag,
+  malformed cloze, garbled content) — fix it by deleting and recreating, not by asking the user to
+  do it themselves in the PWA.
+
+Unlike creation, **don't delete silently**: always tell the user what was removed and why. This is
+destructive and user-facing, not a quality-gate mechanic like the 409 dedup skip.
 
 ## End of session
 
