@@ -86,8 +86,10 @@ internally.
 ### `create_flashcards_batch`
 `POST {API_BASE_URL}/cards/batch`
 Same auth. Body: `{"cards": [ ...same shape as above... ]}`. Use this at the end of a session to
-create everything qualified in one call instead of one request per card. Each card in the batch
-can independently return a 409 — the ones that succeeded are still created.
+create everything qualified in one call instead of one request per card. Always returns `200`
+with the list of cards that were actually created — conflicting ones (exact or fuzzy dedup) are
+silently omitted from that list, not reported individually. If you need to know what was skipped,
+compare the length of what you sent vs. what came back, or check `list_recent_cards` afterwards.
 
 ### `list_recent_cards`
 `GET {API_BASE_URL}/cards/recent?lang={en|es}&limit=20`

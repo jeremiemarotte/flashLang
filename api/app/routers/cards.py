@@ -70,10 +70,19 @@ def create_card(card_in: CardCreate, db: Session = Depends(get_db)) -> Card:
 
 @router.post("/batch", response_model=list[CardOut], dependencies=[Depends(require_hermes)])
 def create_cards_batch(batch: CardBatchCreate, db: Session = Depends(get_db)) -> list[Card]:
-    created = [_create_card(db, card_in) for card_in in batch.cards]
-    db.commit()
-    for card in created:
+    """Commits each card independently so one conflict (exact or fuzzy dedup) doesn't sink the
+    rest of the batch. Conflicting cards are silently omitted from the response, matching the
+    single-create endpoint's "409 means already tracked" semantics."""
+    created: list[Card] = []
+    for card_in in batch.cards:
+        try:
+            card = _create_card(db, card_in)
+            db.commit()
+        except HTTPException:
+            db.rollback()
+            continue
         db.refresh(card)
+        created.append(card)
     return created
 
 

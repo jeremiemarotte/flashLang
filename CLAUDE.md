@@ -84,6 +84,12 @@ retest on top of what the app already tracks. See the Hermes skill section below
   `GET /cards/due?lang=&limit=`, `GET /cards/recent?lang=&limit=` (backs the Hermes skill's
   `list_recent_cards`, not in the original PRD endpoint list — added because the skill needed it),
   `GET /cards/{id}`, `DELETE /cards/{id}`, `POST /reviews`, `GET /stats/daily`.
+  `POST /cards/batch` commits each card in its own transaction (not one commit for the whole
+  batch) specifically so a dedup conflict on one card doesn't roll back the others — the earlier
+  version wrapped the whole batch in one commit and a mid-loop `HTTPException` from `_create_card`
+  aborted the entire request before later items were even attempted. Caught by actually running a
+  batch with a duplicate in the middle and checking what got persisted, not by reading the code.
+  `GET /cards/{id}`, `DELETE /cards/{id}`, `POST /reviews`, `GET /stats/daily`.
 - `main.py`: mounts the PWA's static files at `/` via `StaticFiles` — API routers are registered
   first so their paths take precedence over the catch-all static mount.
 
