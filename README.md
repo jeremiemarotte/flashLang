@@ -87,18 +87,80 @@ Le skill (tools + règles de création) est dans [hermes-skill/SKILL.md](hermes-
 
 ## 7. Déploiement sur TrueNAS SCALE
 
-Créer une **Custom App** (import de compose), avec le fichier de base plus l'override TrueNAS
-qui redirige les volumes vers des datasets ZFS :
+Il y a deux façons de déployer : **image pré-construite** (recommandé — pas besoin de cloner le
+repo ni de builder sur le NAS) ou **build depuis le source**.
+
+### Option A — image pré-construite (recommandé)
+
+Un workflow GitHub Actions ([.github/workflows/docker-publish.yml](.github/workflows/docker-publish.yml))
+build et publie l'image `api` sur `ghcr.io/jeremiemarotte/flashlang-api` à chaque push sur `main`
+qui touche `api/`. [docker-compose.prod.yml](docker-compose.prod.yml) référence cette image au lieu
+de builder — il suffit donc d'avoir **ce seul fichier + un `.env`** sur l'hôte, pas tout le repo.
+
+**Étape préalable, une seule fois** : sur GitHub, après le premier push, rendre le package public
+(Profil → Packages → `flashlang-api` → Package settings → Change visibility → Public), sinon le
+NAS aura besoin d'un `docker login ghcr.io` pour pull une image privée.
 
 ```sh
-docker compose -f docker-compose.yml -f deploy/docker-compose.truenas.yml up -d
+mkdir flashlang && cd flashlang
+curl -O https://raw.githubusercontent.com/jeremiemarotte/flashLang/main/docker-compose.prod.yml
+cp .env.example .env   # ou le créer à la main avec les mêmes clés, voir section 2
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
 ```
 
-Éditer au préalable les chemins `/mnt/<pool>/flashlang/...` dans
-[deploy/docker-compose.truenas.yml](deploy/docker-compose.truenas.yml) pour pointer vers le bon
-pool ZFS. L'accès distant se fait via Tailscale (déjà installé sur l'hôte) — pas de conteneur
-tunnel/proxy dans cette stack, il suffit de joindre l'IP/MagicDNS Tailscale de l'hôte sur le port
-publié.
+Pour l'override ZFS (TrueNAS), utiliser
+[deploy/docker-compose.prod.truenas.yml](deploy/docker-compose.prod.truenas.yml) (chemins
+`/mnt/<pool>/flashlang/...` à éditer d'abord) :
+```sh
+docker compose -f docker-compose.prod.yml -f deploy/docker-compose.prod.truenas.yml up -d
+```
+
+Mise à jour vers une nouvelle version : `docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d`.
+
+### Option B — build depuis le source
+
+Cloner le repo entier, puis utiliser `docker-compose.yml` (celui avec `build: ./api`) plus
+l'override [deploy/docker-compose.truenas.yml](deploy/docker-compose.truenas.yml) :
+
+```sh
+docker compose -f docker-compose.yml -f deploy/docker-compose.truenas.yml up -d --build
+```
+
+Éditer au préalable les chemins `/mnt/<pool>/flashlang/...` dans ce fichier pour pointer vers le
+bon pool ZFS.
+
+Dans les deux cas, l'accès distant se fait via Tailscale (déjà installé sur l'hôte) — pas de
+conteneur tunnel/proxy dans cette stack, il suffit de joindre l'IP/MagicDNS Tailscale de l'hôte
+sur le port publié.
+
+### Via Dockge
+
+Dockge exécute simplement `docker compose` sur un dossier de stack.
+
+**Avec l'image pré-construite (Option A, recommandé)** : pas besoin de cloner le repo.
+1. Créer un dossier de stack dans Dockge (ex. `flashlang`) et n'y déposer que
+   `docker-compose.prod.yml` (copier son contenu dans l'éditeur de compose de Dockge, ou le
+   télécharger dans le dossier de la stack).
+2. Onglet `.env` de la stack : reprendre `.env.example` avec de vraies valeurs.
+3. Pour l'override ZFS, ajouter dans ce `.env` :
+   ```
+   COMPOSE_FILE=docker-compose.prod.yml:deploy/docker-compose.prod.truenas.yml
+   ```
+   (nécessite alors que `deploy/docker-compose.prod.truenas.yml` soit aussi présent dans le
+   dossier de la stack, édité avec le bon pool ZFS.)
+4. Bouton "Deploy" — Dockge fait `docker compose pull` + `up -d`, pas de build.
+5. Mise à jour : re-cliquer "Deploy" (Dockge re-pull l'image `:latest`), ou changer `IMAGE_TAG`
+   dans le `.env` pour épingler une version précise (le tag `:sha-du-commit` est aussi publié).
+
+**Avec le build depuis le source (Option B)** : cloner tout le repo dans le dossier de stacks de
+Dockge (le build de `api` a besoin du Dockerfile et du code source à côté du compose file) :
+```sh
+cd /opt/stacks && git clone https://github.com/jeremiemarotte/flashLang.git flashlang
+```
+Puis suivre les mêmes étapes 2-5 en remplaçant `docker-compose.prod.yml` par `docker-compose.yml`
+et `deploy/docker-compose.prod.truenas.yml` par `deploy/docker-compose.truenas.yml`. Mise à jour :
+`git pull` dans le dossier de la stack, puis re-déployer.
 
 ## 8. Arrêter / réinitialiser
 

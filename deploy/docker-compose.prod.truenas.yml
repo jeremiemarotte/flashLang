@@ -1,0 +1,16 @@
+# TrueNAS ZFS bind-mount override for the image-based deployment (docker-compose.prod.yml).
+# Usage: docker compose -f docker-compose.prod.yml -f deploy/docker-compose.prod.truenas.yml up -d
+# (or set COMPOSE_FILE=docker-compose.prod.yml:deploy/docker-compose.prod.truenas.yml in .env)
+#
+# Unlike deploy/docker-compose.truenas.yml (the source-build override), this one doesn't mount
+# deploy/backup.sh — docker-compose.prod.yml's backup service already has the dump loop inline,
+# so this file only needs to exist on the host, no repo clone required.
+
+services:
+  db:
+    volumes:
+      - /mnt/<pool>/flashlang/db:/var/lib/postgresql/data
+
+  backup:
+    volumes:
+      - /mnt/<pool>/flashlang/backups:/backups
