@@ -1,6 +1,7 @@
 :root {
   --bg: #111318;
   --surface: #1b1e26;
+  --border: rgba(255, 255, 255, 0.07);
   --text: #eef0f4;
   --muted: #8b91a1;
   --accent: #4f8cff;
@@ -8,7 +9,16 @@
   --hard: #d29922;
   --again: #f85149;
   --easy: #58a6ff;
+  /* Per-domain accent, switched via [data-theme] on #app while reviewing a given card —
+     es/en/culture match the colors already used for the home screen's due-count boxes. */
+  --theme-accent: var(--accent);
+  --serif: Georgia, "Times New Roman", serif; /* system serif stack — no external font request,
+     keeps the offline-first app shell self-contained (no CDN dependency to cache/fail on). */
 }
+
+#app[data-theme="es"] { --theme-accent: #e07b39; }
+#app[data-theme="en"] { --theme-accent: #3b82c4; }
+#app[data-theme="culture"] { --theme-accent: #9b6dff; }
 
 * { box-sizing: border-box; }
 
@@ -52,7 +62,12 @@ h1 { font-size: 1.4rem; margin: 0 0 4px; }
   border-radius: 16px;
   padding: 16px;
   text-align: center;
+  border-top: 3px solid var(--bucket-accent, var(--muted));
 }
+
+.due-count.es { --bucket-accent: #e07b39; }
+.due-count.en { --bucket-accent: #3b82c4; }
+.due-count.culture { --bucket-accent: #9b6dff; }
 
 .due-count .n { font-size: 2rem; font-weight: 700; }
 
@@ -71,38 +86,150 @@ button {
   font-size: 1.05rem;
 }
 
-.card {
+.review-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 4px;
+}
+
+.theme-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--theme-accent);
+  flex-shrink: 0;
+  box-shadow: 0 0 6px var(--theme-accent);
+}
+
+.theme-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--theme-accent);
+  white-space: nowrap;
+}
+
+.review-progress-bar {
+  flex: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.review-progress-fill {
+  height: 100%;
+  background: var(--theme-accent);
+  border-radius: 2px;
+}
+
+.review-progress-count {
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.card-wrap {
+  display: flex;
   background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 20px;
-  padding: 28px 24px;
+  overflow: hidden;
   min-height: 220px;
+}
+
+.card-stripe {
+  width: 4px;
+  flex-shrink: 0;
+  background: var(--theme-accent);
+}
+
+.card {
+  flex: 1;
+  padding: 28px 24px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 16px;
-  text-align: center;
+  gap: 8px;
   font-size: 1.3rem;
   line-height: 1.5;
+  font-family: var(--serif);
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+.chip {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-radius: 5px;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.chip-type {
+  color: var(--theme-accent);
+  background: color-mix(in srgb, var(--theme-accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--theme-accent) 30%, transparent);
+}
+
+.chip-source { margin-left: auto; text-transform: none; letter-spacing: normal; }
+
+.card-hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-style: italic;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+.tap-hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+.answer-label, .context-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--theme-accent);
+  font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.card-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0 12px;
 }
 
 .card .context {
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   color: var(--muted);
-  border-top: 1px solid #2a2e3a;
-  padding-top: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  padding: 10px 14px;
+  border-left: 2px solid var(--theme-accent);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   margin-top: 8px;
+  line-height: 1.5;
 }
 
 .cloze-blank {
   background: #2a2e3a;
   border-radius: 6px;
   padding: 0 6px;
-}
-
-.progress {
-  color: var(--muted);
-  font-size: 0.85rem;
-  text-align: center;
 }
 
 .ratings {
@@ -115,6 +242,16 @@ button {
   color: white;
   font-weight: 600;
   font-size: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.ratings .interval {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .rating-again { background: var(--again); }

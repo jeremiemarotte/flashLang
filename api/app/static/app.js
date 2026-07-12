@@ -2,6 +2,12 @@ const TOKEN_KEY = "flashlang_pwa_token";
 const CACHE_KEY = "flashlang_due_cache";
 const QUEUE_KEY = "flashlang_review_queue";
 
+const THEMES = {
+  es: { flag: "🇪🇸", label: "Español", langChip: "ES → FR" },
+  en: { flag: "🇬🇧", label: "English", langChip: "EN → FR" },
+  culture: { flag: "🎭", label: "Culture", langChip: "Culture" },
+};
+
 const app = document.getElementById("app");
 
 const state = {
@@ -69,6 +75,25 @@ function countsByBucket(cards) {
   }, {});
 }
 
+function themeFor(card) {
+  return card.domain === "culture" ? "culture" : card.language;
+}
+
+function formatInterval(days) {
+  if (days < 1) {
+    const minutes = Math.round(days * 24 * 60);
+    return minutes < 60 ? `${minutes} min` : `${Math.round(minutes / 60)} h`;
+  }
+  return `${Math.round(days)} j`;
+}
+
+function relativeTime(isoDate) {
+  const days = Math.floor((Date.now() - new Date(isoDate).getTime()) / 86400000);
+  if (days <= 0) return "aujourd'hui";
+  if (days === 1) return "il y a 1j";
+  return `il y a ${days}j`;
+}
+
 function renderClozeText(text, revealed) {
   return text.replace(/\{\{c\d+::(.*?)\}\}/g, (_, word) =>
     revealed ? `<span class="cloze-blank">${escapeHtml(word)}</span>` : `<span class="cloze-blank">____</span>`
@@ -100,6 +125,7 @@ function renderGate() {
 }
 
 async function renderHome() {
+  app.removeAttribute("data-theme");
   app.innerHTML = `<div class="screen"><p class="muted">Chargement…</p></div>`;
   await flushQueue();
   await loadDueCards();
@@ -112,9 +138,9 @@ async function renderHome() {
       ${state.offline ? `<div class="offline-banner">Hors ligne — dernières cartes chargées</div>` : ""}
       <h1>flashLang</h1>
       <div class="due-counts">
-        <div class="due-count"><div class="n">${counts.en || 0}</div><div class="muted">EN</div></div>
-        <div class="due-count"><div class="n">${counts.es || 0}</div><div class="muted">ES</div></div>
-        <div class="due-count"><div class="n">${counts.culture || 0}</div><div class="muted">Culture</div></div>
+        <div class="due-count en"><div class="n">${counts.en || 0}</div><div class="muted">EN</div></div>
+        <div class="due-count es"><div class="n">${counts.es || 0}</div><div class="muted">ES</div></div>
+        <div class="due-count culture"><div class="n">${counts.culture || 0}</div><div class="muted">Culture</div></div>
       </div>
       <button class="btn-primary" id="start-review" ${total === 0 ? "disabled" : ""}>
         ${total === 0 ? "Rien à réviser" : `Réviser (${total})`}
@@ -139,6 +165,9 @@ function renderReview() {
   if (!card) return renderSummary();
 
   const { revealed } = state.session;
+  const theme = THEMES[themeFor(card)] || THEMES.culture;
+  app.dataset.theme = themeFor(card);
+
   let front, back;
   if (card.type === "cloze") {
     front = renderClozeText(card.text, false);
@@ -148,20 +177,42 @@ function renderReview() {
     back = escapeHtml(card.back);
   }
 
+  const typeChip = card.tags && card.tags.length ? escapeHtml(card.tags[0]) : card.type === "cloze" ? "Structure" : "Vocabulaire";
+  const total = state.dueCards.length;
+  const progressPct = Math.round(((state.session.index + (revealed ? 0.5 : 0)) / total) * 100);
+
   app.innerHTML = `
     <div class="screen">
-      <div class="progress">${state.session.index + 1} / ${state.dueCards.length} · ${card.language.toUpperCase()}${card.domain === "culture" ? " · Culture" : ""}</div>
-      <div class="card" id="card-face">
-        <div>${revealed ? back : front}</div>
-        ${revealed && card.context ? `<div class="context">${escapeHtml(card.context)}</div>` : ""}
+      <div class="review-header">
+        <div class="theme-dot"></div>
+        <div class="theme-label">${theme.flag} ${theme.label}</div>
+        <div class="review-progress-bar"><div class="review-progress-fill" style="width:${progressPct}%"></div></div>
+        <div class="review-progress-count">${state.session.index + 1} / ${total}</div>
+      </div>
+      <div class="card-wrap">
+        <div class="card-stripe"></div>
+        <div class="card" id="card-face">
+          <div class="card-meta">
+            <span class="chip chip-type">${typeChip}</span>
+            <span class="chip">${theme.langChip}</span>
+            <span class="chip chip-source">${relativeTime(card.created_at)}</span>
+          </div>
+          <div>${revealed ? back : front}</div>
+          ${!revealed ? `<div class="tap-hint">↓ Appuyer pour révéler</div>` : ""}
+          ${
+            revealed && card.context
+              ? `<hr class="card-divider"><span class="context-label">Contexte</span><div class="context">${escapeHtml(card.context)}</div>`
+              : ""
+          }
+        </div>
       </div>
       ${
         revealed
           ? `<div class="ratings">
-              <button class="rating-again" data-rating="1">Again</button>
-              <button class="rating-hard" data-rating="2">Hard</button>
-              <button class="rating-good" data-rating="3">Good</button>
-              <button class="rating-easy" data-rating="4">Easy</button>
+              <button class="rating-again" data-rating="1">Again<span class="interval"></span></button>
+              <button class="rating-hard" data-rating="2">Hard<span class="interval"></span></button>
+              <button class="rating-good" data-rating="3">Good<span class="interval"></span></button>
+              <button class="rating-easy" data-rating="4">Easy<span class="interval"></span></button>
             </div>`
           : `<button class="btn-primary" id="reveal">Révéler</button>`
       }
@@ -177,6 +228,23 @@ function renderReview() {
     document.querySelectorAll(".ratings button").forEach((btn) => {
       btn.onclick = () => submitRating(Number(btn.dataset.rating));
     });
+    loadIntervalPreview(card.id);
+  }
+}
+
+async function loadIntervalPreview(cardId) {
+  // Best-effort: if offline or the request fails, the buttons just show no interval hint —
+  // rating still works either way, this is purely informational.
+  try {
+    const intervals = await apiFetch(`/cards/${cardId}/preview`);
+    const labels = { 1: "again", 2: "hard", 3: "good", 4: "easy" };
+    document.querySelectorAll(".ratings button").forEach((btn) => {
+      const key = labels[btn.dataset.rating];
+      const el = btn.querySelector(".interval");
+      if (el && intervals[key] !== undefined) el.textContent = formatInterval(intervals[key]);
+    });
+  } catch (e) {
+    // offline or request failed — leave interval spans empty
   }
 }
 
