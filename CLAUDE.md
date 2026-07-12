@@ -173,12 +173,24 @@ retest on top of what the app already tracks. See the Hermes skill section below
   `GET /cards/{id}/preview` on reveal — `fsrs_engine.preview_intervals()` runs the scheduler for
   all 4 ratings without persisting anything. This is best-effort UI sugar: if the fetch fails
   (offline), the buttons just show no interval hint, rating still works.
+- `submitRating()` re-queues a card (appends it to `state.dueCards`, growing the session's total)
+  when the API response's `interval_days < 1` — FSRS's short-term learning/relearning steps are
+  minutes, not days, and are meant to resurface **within the same sitting**, not wait for the next
+  session. Without this, a card rated Again would only reappear the next time the PWA is opened,
+  since `state.dueCards` is otherwise fetched once and consumed linearly by index. This is a
+  simplification, not exact FSRS-timing accuracy — it doesn't wait for the literal due timestamp
+  to pass, it relies on a few other cards being reviewed in between as a natural gap. Acceptable
+  at this app's scale (short single-sitting sessions); don't build a real per-card timer for this.
 - Offline: last-fetched due cards cached in `localStorage`; reviews that fail to POST are queued
   in `localStorage` and flushed on next load. Last-write-wins, no conflict resolution — this is
   intentional (mono-device, mono-user), don't build a merge strategy.
 - `sw.js` only caches the app shell (the fixed file list); it deliberately does not intercept
   `/cards`, `/reviews`, `/stats` requests — API offline handling lives in `app.js`'s own
-  cache/queue, not the service worker.
+  cache/queue, not the service worker. Fetch strategy for shell files is **network-first, cache
+  fallback** (not cache-first) — caught a real bug where cache-first meant a stale `app.js` would
+  be served forever after any deploy, since `sw.js` itself doesn't change on every release and the
+  browser has no other signal to refetch the shell. Don't revert to cache-first without solving
+  that staleness problem some other way (e.g. content-hashed filenames).
 
 ## Docker / TrueNAS deployment shape
 

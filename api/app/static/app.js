@@ -255,7 +255,12 @@ async function submitRating(rating) {
 
   const payload = { card_id: card.id, rating };
   try {
-    await apiFetch("/reviews", { method: "POST", body: JSON.stringify(payload) });
+    const res = await apiFetch("/reviews", { method: "POST", body: JSON.stringify(payload) });
+    // FSRS's short-term learning/relearning steps (minutes, not days) are meant to resurface
+    // within the same sitting, not wait for the next session — requeue at the end of the
+    // current list instead of treating this card as done for today. `total` in the header grows
+    // accordingly, matching how Anki-style apps show a fluctuating "remaining" count.
+    if (res.interval_days < 1) state.dueCards.push(res.card);
   } catch (e) {
     const queue = readQueue();
     queue.push(payload);
