@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_any_client, require_hermes
 from app.database import get_db
-from app.fsrs_engine import new_card_fsrs_state, normalize_front
+from app.fsrs_engine import new_card_fsrs_state, normalize_front, preview_intervals
 from app.models import Card
 from app.schemas import CardBatchCreate, CardCreate, CardOut
 
@@ -136,6 +136,16 @@ def get_card(card_id: uuid.UUID, db: Session = Depends(get_db)) -> Card:
     if card is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "card not found")
     return card
+
+
+@router.get("/{card_id}/preview", dependencies=[Depends(require_any_client)])
+def preview_card(card_id: uuid.UUID, db: Session = Depends(get_db)) -> dict[str, float]:
+    """Predicted interval (days) per rating, without persisting — backs the PWA's rating buttons
+    showing e.g. "Again: 10 min / Good: 4 j" before the user picks one."""
+    card = db.get(Card, card_id)
+    if card is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "card not found")
+    return preview_intervals(card)
 
 
 @router.delete("/{card_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_any_client)])

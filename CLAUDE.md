@@ -94,9 +94,10 @@ retest on top of what the app already tracks. See the Hermes skill section below
 - `routers/cards.py`, `routers/reviews.py`, `routers/stats.py`: `POST /cards`, `POST /cards/batch`,
   `GET /cards/due?lang=&domain=&limit=`, `GET /cards/recent?lang=&domain=&limit=` (backs the
   Hermes skill's `list_recent_cards`, not in the original PRD endpoint list — added because the
-  skill needed it), `GET /cards/{id}`, `DELETE /cards/{id}`, `POST /reviews`, `GET /stats/daily`.
-  `domain` on the list endpoints is optional — omit it to get both language and culture cards
-  together.
+  skill needed it), `GET /cards/{id}`, `GET /cards/{id}/preview` (predicted interval per rating,
+  backs the PWA's rating-button hints — read-only, doesn't touch FSRS state), `DELETE /cards/{id}`,
+  `POST /reviews`, `GET /stats/daily`. `domain` on the list endpoints is optional — omit it to get
+  both language and culture cards together.
   `POST /cards/batch` commits each card in its own transaction (not one commit for the whole
   batch) specifically so a dedup conflict on one card doesn't roll back the others — the earlier
   version wrapped the whole batch in one commit and a mid-loop `HTTPException` from `_create_card`
@@ -162,6 +163,16 @@ retest on top of what the app already tracks. See the Hermes skill section below
   Culture — culture cards are counted in one combined bucket regardless of `language`, the actual
   language is still shown in the per-card progress header during review) → review (reveal → rate,
   cloze parsed from `{{c1::...}}` syntax client-side) → summary.
+- Per-domain accent color (`themeFor()`: es/en/culture → orange/blue/purple) drives `#app`'s
+  `data-theme` attribute during review — the card's left stripe, header dot/label, progress bar,
+  and chip accents all read `--theme-accent` from CSS, switched per `[data-theme]` selector in
+  `style.css`. Typography for question/answer uses a system serif stack (`--serif`, Georgia
+  fallback), not a Google Fonts import — deliberately, to keep the app shell fully self-contained
+  offline with no CDN dependency to cache or fail on.
+- Rating buttons show the FSRS-predicted interval per rating (e.g. "Good: 4 j") fetched from
+  `GET /cards/{id}/preview` on reveal — `fsrs_engine.preview_intervals()` runs the scheduler for
+  all 4 ratings without persisting anything. This is best-effort UI sugar: if the fetch fails
+  (offline), the buttons just show no interval hint, rating still works.
 - Offline: last-fetched due cards cached in `localStorage`; reviews that fail to POST are queued
   in `localStorage` and flushed on next load. Last-write-wins, no conflict resolution — this is
   intentional (mono-device, mono-user), don't build a merge strategy.
